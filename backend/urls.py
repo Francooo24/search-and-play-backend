@@ -24,4 +24,5 @@ urlpatterns = [
     path('api/leaderboard/',   include('leaderboard.urls')),
     path('api/achievements/',  include('achievements.urls')),
     path('api/stats/',         include('stats.urls')),
+    path('api/admin-api/',     include('admin_api.urls')),
 ]

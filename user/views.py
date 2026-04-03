@@ -12,13 +12,56 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.exceptions import TokenError
 
+from backend.rate_limit import rate_limit, get_client_ip
 from .models import Player, PendingVerification, PasswordReset
 from .serializers import (
     RegisterSerializer, VerifyOtpSerializer,
     LoginSerializer, PlayerSerializer, ChangePasswordSerializer,
     ForgotPasswordSerializer, ResetPasswordSerializer,
 )
+
+RATE_LIMITED = Response(
+    {"error": "Too many requests. Please wait and try again."},
+    status=status.HTTP_429_TOO_MANY_REQUESTS,
+)
+
+
+class TokenRefreshView(APIView):
+    """Custom token refresh — validates refresh token and issues a new access token."""
+    def post(self, request):
+        ip = get_client_ip(request)
+        if rate_limit(f"token_refresh:{ip}", max_requests=20, window_seconds=60):
+            return RATE_LIMITED
+
+        refresh_token = request.data.get("refresh")
+        if not refresh_token:
+            return Response({"error": "Refresh token is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            token = RefreshToken(refresh_token)
+            player_id = token.get("user_id")
+            if not player_id:
+                raise TokenError("Invalid token payload")
+
+            # Verify player still exists and is not banned
+            player = Player.objects.get(id=player_id)
+            if getattr(player, "status", None) == "banned":
+                return Response({"error": "Account is banned."}, status=status.HTTP_403_FORBIDDEN)
+
+            # Issue new access token with correct claims
+            new_access = RefreshToken()
+            new_access["user_id"]     = player.id
+            new_access["player_name"] = player.player_name
+            new_access["is_admin"]    = False
+
+            return Response({"access": str(new_access.access_token)})
+
+        except Player.DoesNotExist:
+            return Response({"error": "Player not found."}, status=status.HTTP_404_NOT_FOUND)
+        except TokenError as e:
+            return Response({"error": f"Invalid or expired refresh token: {e}"}, status=status.HTTP_401_UNAUTHORIZED)
 
 
 def get_tokens(player):
@@ -45,6 +88,9 @@ def _get_player_from_request(request):
 
 class RegisterView(APIView):
     def post(self, request):
+        ip = get_client_ip(request)
+        if rate_limit(f"register:{ip}", max_requests=5, window_seconds=600):
+            return RATE_LIMITED
         serializer = RegisterSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -68,6 +114,7 @@ class RegisterView(APIView):
             show_kids   = data.get("show_kids", False),
             show_teen   = data.get("show_teen", False),
             show_adult  = data.get("show_adult", False),
+            country     = data.get("country", "") or None,
             otp         = otp,
             otp_expires = otp_expires,
         )
@@ -108,6 +155,9 @@ class RegisterView(APIView):
 
 class VerifyOtpView(APIView):
     def post(self, request):
+        ip = get_client_ip(request)
+        if rate_limit(f"verify_otp:{ip}", max_requests=10, window_seconds=600):
+            return RATE_LIMITED
         serializer = VerifyOtpSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -133,6 +183,7 @@ class VerifyOtpView(APIView):
             show_kids   = pending.show_kids,
             show_teen   = pending.show_teen,
             show_adult  = pending.show_adult,
+            country     = pending.country,
         )
 
         pending.delete()
@@ -142,6 +193,13 @@ class VerifyOtpView(APIView):
 
 class LoginView(APIView):
     def post(self, request):
+        ip = get_client_ip(request)
+        if rate_limit(f"login:{ip}", max_requests=10, window_seconds=600):
+            return RATE_LIMITED
+        # Also rate limit by email to prevent targeted brute force
+        email = (request.data.get("email") or "").strip().lower()
+        if email and rate_limit(f"login_email:{email}", max_requests=10, window_seconds=600):
+            return RATE_LIMITED
         # Internal call from NextAuth — skip password, just issue tokens by email
         if request.data.get("_nextauth"):
             secret = request.data.get("_secret", "")
@@ -207,6 +265,9 @@ class ChangePasswordView(APIView):
 
 class ForgotPasswordView(APIView):
     def post(self, request):
+        ip = get_client_ip(request)
+        if rate_limit(f"forgot_password:{ip}", max_requests=5, window_seconds=600):
+            return RATE_LIMITED
         serializer = ForgotPasswordSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -247,8 +308,60 @@ class ForgotPasswordView(APIView):
         return Response({"message": "OTP sent."})
 
 
+class ResendOtpView(APIView):
+    def post(self, request):
+        ip = get_client_ip(request)
+        if rate_limit(f"resend_otp:{ip}", max_requests=3, window_seconds=600):
+            return RATE_LIMITED
+
+        email = (request.data.get("email") or "").strip().lower()
+        if not email:
+            return Response({"error": "Email is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            pending = PendingVerification.objects.get(email=email)
+        except PendingVerification.DoesNotExist:
+            return Response({"error": "No pending verification found. Please sign up again."}, status=status.HTTP_404_NOT_FOUND)
+
+        otp         = str(random.randint(100000, 999999))
+        otp_expires = timezone.now() + timedelta(minutes=10)
+        pending.otp         = otp
+        pending.otp_expires = otp_expires
+        pending.save()
+
+        try:
+            send_mail(
+                subject="Your New Search & Play Verification Code",
+                message=f"Hi {pending.player_name},\n\nYour new OTP code is: {otp}\n\nThis code expires in 10 minutes.",
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                recipient_list=[email],
+                html_message=f"""
+                <div style="font-family:Inter,sans-serif;max-width:480px;margin:0 auto;background:#0d0d14;color:#e2e8f0;border-radius:16px;overflow:hidden;">
+                    <div style="background:linear-gradient(90deg,#f97316,#fb923c);padding:24px;text-align:center;">
+                        <h1 style="margin:0;color:#fff;font-size:24px;">Search &amp; Play</h1>
+                    </div>
+                    <div style="padding:32px;text-align:center;">
+                        <p style="font-size:16px;margin-bottom:8px;">Hi <strong>{pending.player_name}</strong>,</p>
+                        <p style="color:#94a3b8;margin-bottom:24px;">Here is your new OTP code:</p>
+                        <div style="background:#1e1e2e;border:2px solid #f97316;border-radius:12px;padding:24px;display:inline-block;margin-bottom:24px;">
+                            <span style="font-size:40px;font-weight:700;letter-spacing:12px;color:#f97316;">{otp}</span>
+                        </div>
+                        <p style="color:#64748b;font-size:13px;">This code expires in <strong>10 minutes</strong>.</p>
+                    </div>
+                </div>
+                """,
+            )
+        except Exception:
+            return Response({"error": "Failed to send email. Please try again."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        return Response({"success": True})
+
+
 class ResetPasswordView(APIView):
     def post(self, request):
+        ip = get_client_ip(request)
+        if rate_limit(f"reset_password:{ip}", max_requests=5, window_seconds=600):
+            return RATE_LIMITED
         serializer = ResetPasswordSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

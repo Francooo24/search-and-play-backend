@@ -42,6 +42,7 @@ INSTALLED_APPS = [
     'leaderboard',
     'achievements',
     'stats',
+    'admin_api',
     'django.contrib.messages',
     'django.contrib.staticfiles',
 ]

@@ -12,6 +12,7 @@ class RegisterSerializer(serializers.Serializer):
     show_kids   = serializers.BooleanField(default=False)
     show_teen   = serializers.BooleanField(default=False)
     show_adult  = serializers.BooleanField(default=False)
+    country     = serializers.CharField(max_length=2, required=False, allow_blank=True, default="")
 
     def validate_email(self, value):
         if Player.objects.filter(email=value).exists():
@@ -52,7 +53,7 @@ class LoginSerializer(serializers.Serializer):
 class PlayerSerializer(serializers.ModelSerializer):
     class Meta:
         model  = Player
-        fields = ["id", "player_name", "email", "birthdate", "show_kids", "show_teen", "show_adult", "status", "created_at"]
+        fields = ["id", "player_name", "email", "birthdate", "show_kids", "show_teen", "show_adult", "country", "status", "created_at"]
         read_only_fields = ["id", "status", "created_at"]
 
 

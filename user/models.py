@@ -12,6 +12,7 @@ class Player(models.Model):
     show_kids   = models.BooleanField(default=False)
     show_teen   = models.BooleanField(default=False)
     show_adult  = models.BooleanField(default=False)
+    country     = models.CharField(max_length=2, null=True, blank=True)
     status      = models.CharField(max_length=10, choices=STATUS_CHOICES, default="active")
     created_at  = models.DateTimeField(auto_now_add=True)
 
@@ -37,6 +38,7 @@ class PendingVerification(models.Model):
     show_kids   = models.BooleanField(default=False)
     show_teen   = models.BooleanField(default=False)
     show_adult  = models.BooleanField(default=False)
+    country     = models.CharField(max_length=2, null=True, blank=True)
     otp         = models.CharField(max_length=6, null=True, blank=True)
     otp_expires = models.DateTimeField(null=True, blank=True)
     created_at  = models.DateTimeField(auto_now_add=True)
