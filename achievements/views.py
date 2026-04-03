@@ -26,7 +26,7 @@ def _check_streak(scores, min_score, streak_len):
     return len(recent) >= streak_len and all(s >= min_score for s in recent)
 
 
-def _is_earned(achievement, scores):
+def _is_earned(achievement, scores, player=None):
     ct  = achievement.condition_type
     val = achievement.condition_value
     gs  = achievement.game_specific
@@ -48,20 +48,20 @@ def _is_earned(achievement, scores):
         return total >= val
     if ct == "searches":
         from games.models import ActivityLog
+        if not player:
+            return False
         count = ActivityLog.objects.filter(
-            player_name=scores.first().player_name if scores.exists() else "",
+            player_name=player.player_name,
             activity__icontains='Searched for'
         ).count()
         return count >= val
     if ct == "favorites":
         from games.models import FavoriteWord
-        player = scores.first().user if scores.exists() else None
         if not player:
             return False
         return FavoriteWord.objects.filter(user=player).count() >= val
-    # fallback
-    total = (scores.aggregate(Sum("score"))["score__sum"] or 0)
-    return total >= val
+    # unknown condition type — do not award
+    return False
 
 
 class AchievementsView(APIView):
@@ -92,7 +92,7 @@ class CheckAchievementsView(APIView):
         new_badges = []
         for achievement in Achievement.objects.exclude(id__in=already):
             try:
-                if _is_earned(achievement, scores):
+                if _is_earned(achievement, scores, player=player):
                     PlayerAchievement.objects.get_or_create(player=player, achievement=achievement)
                     new_badges.append({
                         "icon":        achievement.icon,

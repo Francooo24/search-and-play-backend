@@ -151,9 +151,29 @@ class DailyChallengeView(APIView):
     def get(self, request):
         player = _get_player(request)
         today  = date.today()
-        try:
-            challenge = DailyChallenge.objects.get(challenge_date=today)
-        except DailyChallenge.DoesNotExist:
+
+        # Determine player's age group
+        age_group = None
+        if player and player.birthdate:
+            from datetime import date as date_cls
+            today_d = date_cls.today()
+            birth   = player.birthdate
+            age     = today_d.year - birth.year - ((today_d.month, today_d.day) < (birth.month, birth.day))
+            age_group = "kids" if age <= 12 else "teen" if age <= 17 else "adult"
+
+        # Try to get age-group-specific challenge first, fallback to no age_group
+        challenge = None
+        if age_group:
+            challenge = DailyChallenge.objects.filter(
+                challenge_date=today, age_group=age_group
+            ).first()
+        if not challenge:
+            challenge = DailyChallenge.objects.filter(
+                challenge_date=today, age_group__isnull=True
+            ).first()
+        if not challenge:
+            challenge = DailyChallenge.objects.filter(challenge_date=today).first()
+        if not challenge:
             return Response({"challenge": None})
 
         completed = False
