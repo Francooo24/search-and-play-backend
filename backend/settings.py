@@ -26,7 +26,12 @@ except ImportError:
 SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-change-me-in-production')
 DEBUG = os.environ.get('DEBUG', 'True') == 'True'
 ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
-database_url = os.environ.get("DATABASE_URL")
+database_url = (os.environ.get("DATABASE_URL") or "").strip()
+if database_url.startswith("://"):
+    database_url = "postgresql" + database_url
+elif database_url and "://" not in database_url and "@" in database_url and "/" in database_url:
+    # Common .env mistake: missing scheme (e.g. user:pass@host/dbname)
+    database_url = "postgresql://" + database_url
 
 
 # Application definition
@@ -116,7 +121,19 @@ DATABASES = {
     }
 }
 
-DATABASES['default'] = dj_database_url.parse("database_url",)
+if database_url:
+    try:
+        DATABASES['default'] = dj_database_url.parse(
+            database_url,
+            conn_max_age=60,
+            conn_health_checks=True,
+            ssl_require=not DEBUG,
+        )
+    except Exception as exc:
+        raise RuntimeError(
+            "Invalid DATABASE_URL. It must include a scheme, e.g. "
+            "'postgresql://user:password@host:5432/dbname'."
+        ) from exc
 
 # Password validation
 # https://docs.djangoproject.com/en/6.0/ref/settings/#auth-password-validators
