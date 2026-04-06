@@ -33,12 +33,12 @@ class LeaderboardView(APIView):
                     cur.execute(
                         "SELECT l.game, l.player_name, MAX(l.score) as score, p.country "
                         "FROM leaderboard l JOIN players p ON l.user_id = p.id "
-                        "WHERE p.is_admin = 0 GROUP BY l.game, l.player_name, p.country ORDER BY l.game, score DESC"
+                        "WHERE p.is_admin = FALSE GROUP BY l.game, l.player_name, p.country ORDER BY l.game, score DESC"
                     )
                     rows = cur.fetchall()
                     cur.execute(
                         "SELECT DISTINCT l.game FROM leaderboard l JOIN players p ON l.user_id = p.id "
-                        "WHERE p.is_admin = 0 ORDER BY l.game"
+                        "WHERE p.is_admin = FALSE ORDER BY l.game"
                     )
                     game_list = [r[0] for r in cur.fetchall()]
                     games: dict = {}
@@ -53,7 +53,7 @@ class LeaderboardView(APIView):
                     cur.execute(
                         "SELECT l.player_name, MAX(l.score) as best_score, COUNT(*) as plays, MAX(l.created_at) as last_played, p.country "
                         "FROM leaderboard l JOIN players p ON l.user_id = p.id "
-                        "WHERE l.game = %s AND p.is_admin = 0 GROUP BY l.player_name, p.country ORDER BY best_score DESC LIMIT 10",
+                        "WHERE l.game = %s AND p.is_admin = FALSE GROUP BY l.player_name, p.country ORDER BY best_score DESC LIMIT 10",
                         [game]
                     )
                     rows = cur.fetchall()
@@ -66,8 +66,8 @@ class LeaderboardView(APIView):
                         "SELECT p.id, p.player_name, COALESCE(SUM(l.score),0) AS total_points, "
                         "COUNT(l.id) AS total_games, COALESCE(AVG(l.score),0) AS avg_score, MAX(l.created_at) AS last_played, p.birthdate, p.country "
                         "FROM players p LEFT JOIN leaderboard l ON p.id = l.user_id "
-                        "WHERE p.is_admin = 0 "
-                        "GROUP BY p.id, p.player_name, p.birthdate, p.country HAVING total_points > 0 ORDER BY total_points DESC LIMIT 50"
+                        "WHERE p.is_admin = FALSE "
+                        "GROUP BY p.id, p.player_name, p.birthdate, p.country HAVING COALESCE(SUM(l.score),0) > 0 ORDER BY total_points DESC LIMIT 50"
                     )
                     rows = cur.fetchall()
                     from datetime import date
@@ -94,22 +94,22 @@ class LeaderboardView(APIView):
                 # Default leaderboard view
                 offset = int(request.query_params.get("offset", 0))
                 limit  = 20
-                conditions, params = ["p.is_admin = 0"], []
+                conditions, params = ["p.is_admin = FALSE"], []
                 if game:
                     conditions.append("l.game = %s"); params.append(game)
                 if period == "daily":
-                    conditions.append("l.created_at >= CURDATE()")
+                    conditions.append("l.created_at >= CURRENT_DATE")
                 elif period == "weekly":
-                    conditions.append("l.created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)")
+                    conditions.append("l.created_at >= NOW() - INTERVAL '7 days'")
                 elif period == "monthly":
-                    conditions.append("l.created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)")
+                    conditions.append("l.created_at >= NOW() - INTERVAL '30 days'")
 
                 where    = "WHERE " + " AND ".join(conditions)
                 game_col = "" if game else ", MAX(l.game) as game"
                 cur.execute(
                     f"SELECT l.player_name, l.user_id, SUM(l.score) as total_score, MAX(l.created_at) as last_played {game_col}, p.birthdate, p.country, COUNT(l.id) as total_games "
                     f"FROM leaderboard l LEFT JOIN players p ON l.user_id = p.id "
-                    f"{where} GROUP BY l.player_name, l.user_id, p.birthdate, p.country ORDER BY total_score DESC LIMIT %s OFFSET %s",
+                    f"{where} GROUP BY l.player_name, l.user_id, p.birthdate, p.country HAVING SUM(l.score) > 0 ORDER BY total_score DESC LIMIT %s OFFSET %s",
                     params + [limit, offset]
                 )
                 rows = cur.fetchall()
@@ -129,7 +129,7 @@ class LeaderboardView(APIView):
 
                 cur.execute(
                     "SELECT DISTINCT l.game FROM leaderboard l JOIN players p ON l.user_id = p.id "
-                    "WHERE p.is_admin = 0 ORDER BY l.game"
+                    "WHERE p.is_admin = FALSE ORDER BY l.game"
                 )
                 game_types = [r[0] for r in cur.fetchall()]
 

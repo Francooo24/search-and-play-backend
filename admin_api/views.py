@@ -39,24 +39,24 @@ class AdminPlayersView(APIView):
             if search:
                 like = f"%{search}%"
                 cur.execute(
-                    "SELECT id, player_name, email, created_at, status, deleted_at FROM players "
-                    "WHERE is_admin = 0 AND (player_name LIKE %s OR email LIKE %s) "
+                    "SELECT id, player_name, email, created_at, status FROM players "
+                    "WHERE is_admin = FALSE AND (player_name LIKE %s OR email LIKE %s) "
                     "ORDER BY created_at DESC LIMIT %s OFFSET %s",
                     [like, like, limit, offset]
                 )
                 players = [dict(zip([c[0] for c in cur.description], row)) for row in cur.fetchall()]
                 cur.execute(
-                    "SELECT COUNT(*) FROM players WHERE is_admin = 0 AND (player_name LIKE %s OR email LIKE %s)",
+                    "SELECT COUNT(*) FROM players WHERE is_admin = FALSE AND (player_name LIKE %s OR email LIKE %s)",
                     [like, like]
                 )
             else:
                 cur.execute(
-                    "SELECT id, player_name, email, created_at, status, deleted_at FROM players "
-                    "WHERE is_admin = 0 ORDER BY created_at DESC LIMIT %s OFFSET %s",
+                    "SELECT id, player_name, email, created_at, status FROM players "
+                    "WHERE is_admin = FALSE ORDER BY created_at DESC LIMIT %s OFFSET %s",
                     [limit, offset]
                 )
                 players = [dict(zip([c[0] for c in cur.description], row)) for row in cur.fetchall()]
-                cur.execute("SELECT COUNT(*) FROM players WHERE is_admin = 0")
+                cur.execute("SELECT COUNT(*) FROM players WHERE is_admin = FALSE")
 
             total = cur.fetchone()[0]
 
@@ -70,7 +70,7 @@ class AdminBanView(APIView):
         if not player_id or not str(player_id).isdigit():
             return Response({"error": "Invalid player_id"}, status=status.HTTP_400_BAD_REQUEST)
         with connection.cursor() as cur:
-            cur.execute("UPDATE players SET status = 'banned' WHERE id = %s AND is_admin = 0", [int(player_id)])
+            cur.execute("UPDATE players SET status = 'banned' WHERE id = %s AND is_admin = FALSE", [int(player_id)])
         return Response({"success": True})
 
 
@@ -81,7 +81,7 @@ class AdminUnbanView(APIView):
         if not player_id or not str(player_id).isdigit():
             return Response({"error": "Invalid player_id"}, status=status.HTTP_400_BAD_REQUEST)
         with connection.cursor() as cur:
-            cur.execute("UPDATE players SET status = 'active' WHERE id = %s AND is_admin = 0", [int(player_id)])
+            cur.execute("UPDATE players SET status = 'active' WHERE id = %s AND is_admin = FALSE", [int(player_id)])
         return Response({"success": True})
 
 
@@ -92,13 +92,8 @@ class AdminDeleteView(APIView):
         if not player_id or not str(player_id).isdigit():
             return Response({"error": "Invalid player_id"}, status=status.HTTP_400_BAD_REQUEST)
         with connection.cursor() as cur:
-            # Add deleted_at column if it doesn't exist yet
             cur.execute(
-                "ALTER TABLE players ADD COLUMN IF NOT EXISTS deleted_at DATETIME NULL DEFAULT NULL"
-            )
-            # Soft delete — set deleted_at timestamp instead of removing the row
-            cur.execute(
-                "UPDATE players SET deleted_at = NOW(), status = 'deleted' WHERE id = %s AND is_admin = 0",
+                "UPDATE players SET status = 'deleted' WHERE id = %s AND is_admin = FALSE",
                 [int(player_id)]
             )
         return Response({"success": True})
@@ -112,7 +107,7 @@ class AdminRestoreView(APIView):
             return Response({"error": "Invalid player_id"}, status=status.HTTP_400_BAD_REQUEST)
         with connection.cursor() as cur:
             cur.execute(
-                "UPDATE players SET deleted_at = NULL, status = 'active' WHERE id = %s AND is_admin = 0",
+                "UPDATE players SET status = 'active' WHERE id = %s AND is_admin = FALSE",
                 [int(player_id)]
             )
         return Response({"success": True})
@@ -132,7 +127,7 @@ class AdminEditView(APIView):
 
         with connection.cursor() as cur:
             cur.execute(
-                "UPDATE players SET player_name = %s, email = %s WHERE id = %s AND is_admin = 0",
+                "UPDATE players SET player_name = %s, email = %s WHERE id = %s AND is_admin = FALSE",
                 [player_name, email, int(player_id)]
             )
         return Response({"success": True})
@@ -180,7 +175,7 @@ class AdminLeaderboardView(APIView):
                 "SELECT l.player_name, SUM(l.score) as total_score, COUNT(*) as total_games, "
                 "MAX(l.created_at) as last_played "
                 "FROM leaderboard l JOIN players p ON l.user_id = p.id "
-                "WHERE p.is_admin = 0 GROUP BY l.player_name "
+                "WHERE p.is_admin = FALSE GROUP BY l.player_name "
                 "ORDER BY total_score DESC LIMIT 20"
             )
             cols = [c[0] for c in cur.description]
