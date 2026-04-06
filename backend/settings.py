@@ -193,8 +193,17 @@ NEXTAUTH_INTERNAL_SECRET = os.environ.get('NEXTAUTH_INTERNAL_SECRET', 'change-me
 
 TEST_RUNNER = 'test_runner.UnmanagedTestRunner'
 
-CORS_ALLOWED_ORIGINS = [
-    origin.strip()
-    for origin in os.environ.get('CORS_ALLOWED_ORIGINS', 'http://localhost:3000').split(',')
-    if origin.strip()
-]
+_cors_origins_raw = os.environ.get('CORS_ALLOWED_ORIGINS', 'http://localhost:3000')
+CORS_ALLOWED_ORIGINS = []
+for _raw in _cors_origins_raw.split(','):
+    _origin = (_raw or '').strip().rstrip('/')
+    if not _origin:
+        continue
+    if _origin.startswith('http://') or _origin.startswith('https://'):
+        CORS_ALLOWED_ORIGINS.append(_origin)
+    elif _origin.startswith('localhost') or _origin.startswith('127.0.0.1'):
+        CORS_ALLOWED_ORIGINS.append(f'http://{_origin}')
+    else:
+        CORS_ALLOWED_ORIGINS.append(f'https://{_origin}')
+
+CSRF_TRUSTED_ORIGINS = CORS_ALLOWED_ORIGINS[:]
