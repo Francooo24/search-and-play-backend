@@ -102,6 +102,15 @@ TEMPLATES = [
 
 CORS_ALLOW_CREDENTIALS = True
 
+# If your frontend talks to Django on a different domain (Vercel -> Render) and you
+# rely on cookies/session, you need Secure + SameSite=None in production.
+if not DEBUG:
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+    CSRF_COOKIE_SECURE = True
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SAMESITE = "None"
+    SESSION_COOKIE_SAMESITE = "None"
+
 WSGI_APPLICATION = 'backend.wsgi.application'
 
 
@@ -193,7 +202,12 @@ NEXTAUTH_INTERNAL_SECRET = os.environ.get('NEXTAUTH_INTERNAL_SECRET', 'change-me
 
 TEST_RUNNER = 'test_runner.UnmanagedTestRunner'
 
-_cors_origins_raw = os.environ.get('CORS_ALLOWED_ORIGINS', 'http://localhost:3000')
+_default_cors_origins = os.environ.get('FRONTEND_ORIGIN', '').strip()
+if not _default_cors_origins:
+    _default_cors_origins = 'http://localhost:3000'
+    if not DEBUG:
+        _default_cors_origins += ',https://search-and-play-web.vercel.app'
+_cors_origins_raw = os.environ.get('CORS_ALLOWED_ORIGINS', _default_cors_origins)
 CORS_ALLOWED_ORIGINS = []
 for _raw in _cors_origins_raw.split(','):
     _origin = (_raw or '').strip().rstrip('/')
@@ -207,3 +221,6 @@ for _raw in _cors_origins_raw.split(','):
         CORS_ALLOWED_ORIGINS.append(f'https://{_origin}')
 
 CSRF_TRUSTED_ORIGINS = CORS_ALLOWED_ORIGINS[:]
+
+if os.environ.get('CORS_ALLOW_VERCEL_PREVIEWS', 'False') == 'True':
+    CORS_ALLOWED_ORIGIN_REGEXES = [r'^https://.*\.vercel\.app$']
