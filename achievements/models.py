@@ -24,7 +24,7 @@ class PlayerAchievement(models.Model):
     earned_at   = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        db_table        = "user_achievements"
+        db_table        = "player_achievements"
         unique_together = (("player", "achievement"),)
         managed         = False
 
