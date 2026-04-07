@@ -17,7 +17,7 @@ class DailyChallenge(models.Model):
 
 
 class DailyChallengeCompletion(models.Model):
-    user      = models.ForeignKey(Player, on_delete=models.CASCADE, db_column="user_id")
+    user      = models.ForeignKey(Player, on_delete=models.CASCADE, db_column="player_id")
     challenge = models.ForeignKey(DailyChallenge, on_delete=models.CASCADE, db_column="challenge_id")
     completed_at = models.DateTimeField(auto_now_add=True)
 
