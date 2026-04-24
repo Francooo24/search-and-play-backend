@@ -1,19 +1,23 @@
 import bcrypt
+import os
 from django.test import TestCase
 from rest_framework.test import APIClient
 from rest_framework import status
-from datetime import date, timedelta
+from datetime import timedelta
+from django.utils import timezone
 
 from user.models import Player
 from games.models import GameScore, DailyChallenge, DailyChallengeCompletion
 from achievements.models import Achievement, PlayerAchievement
 
 
-def make_player(player_name="testuser", email=None):
+def make_player(player_name="testuser", email=None, password=None):
     """Create a Player directly (bypassing OTP flow) for testing."""
     if email is None:
         email = f"{player_name}@test.com"
-    hashed = bcrypt.hashpw(b"testpass123", bcrypt.gensalt()).decode()
+    if password is None:
+        password = os.environ.get("TEST_USER_PASSWORD", "default-test-password")
+    hashed = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
     return Player.objects.create(
         player_name=player_name,
         email=email,
@@ -34,17 +38,19 @@ class AuthTests(TestCase):
         pass
 
     def test_login_returns_tokens(self):
-        hashed = bcrypt.hashpw(b"mypassword", bcrypt.gensalt()).decode()
+        pwd = os.environ.get("TEST_USER_PASSWORD", "default-test-password")
+        hashed = bcrypt.hashpw(pwd.encode(), bcrypt.gensalt()).decode()
         Player.objects.create(player_name="loginuser", email="login@test.com", password=hashed)
         client = APIClient()
-        res = client.post("/api/user/login/", {"email": "login@test.com", "password": "mypassword"})
+        res = client.post("/api/user/login/", {"email": "login@test.com", "password": pwd})
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertIn("tokens", res.data)
         self.assertIn("access", res.data["tokens"])
         self.assertIn("refresh", res.data["tokens"])
 
     def test_login_wrong_password_fails(self):
-        hashed = bcrypt.hashpw(b"correctpass", bcrypt.gensalt()).decode()
+        pwd = os.environ.get("TEST_USER_PASSWORD", "default-test-password")
+        hashed = bcrypt.hashpw(pwd.encode(), bcrypt.gensalt()).decode()
         Player.objects.create(player_name="loginuser2", email="login2@test.com", password=hashed)
         client = APIClient()
         res = client.post("/api/user/login/", {"email": "login2@test.com", "password": "wrongpass"})
@@ -68,10 +74,11 @@ class AuthTests(TestCase):
         self.assertEqual(res.data["player_name"], "profileuser")
 
     def test_banned_player_cannot_login(self):
-        hashed = bcrypt.hashpw(b"pass123", bcrypt.gensalt()).decode()
+        pwd = os.environ.get("TEST_USER_PASSWORD", "default-test-password")
+        hashed = bcrypt.hashpw(pwd.encode(), bcrypt.gensalt()).decode()
         Player.objects.create(player_name="banned", email="banned@test.com", password=hashed, status="banned")
         client = APIClient()
-        res = client.post("/api/user/login/", {"email": "banned@test.com", "password": "pass123"})
+        res = client.post("/api/user/login/", {"email": "banned@test.com", "password": pwd})
         self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
 
 
@@ -222,7 +229,7 @@ class DailyChallengeTests(TestCase):
         self.player = make_player("challenger")
         self.client = auth_client(self.player)
         self.challenge = DailyChallenge.objects.create(
-            challenge_date=date.today(),
+            challenge_date=timezone.localdate(),
             game="Hangman",
             title="Hangman Hero",
             description="Play Hangman once today!",
@@ -278,7 +285,7 @@ class DailyChallengeTests(TestCase):
 
     def test_streak_counts_consecutive_days(self):
         yesterday = DailyChallenge.objects.create(
-            challenge_date=date.today() - timedelta(days=1),
+            challenge_date=timezone.localdate() - timedelta(days=1),
             game="Wordle", title="Yesterday", description="Test",
             target_type="win", target_value=1, bonus_points=50,
         )
